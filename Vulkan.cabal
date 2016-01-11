@@ -1,7 +1,12 @@
 name: Vulkan
 version: 0.1.0.0
 synopsis: A binding for the Vulkan API
-description: All the examples from the OpenGL SuperBible (7th ed.) in Haskell.
+description:
+  Vulkan is the new generation, open standard API for high-efficiency access to
+  graphics and compute on modern GPUs. This ground-up design, previously referred
+  to as the Next Generation OpenGL Initiative, provides applications direct
+  control over GPU acceleration for maximized performance and predictability.
+  For more information about Vulkan, see <https://www.khronos.org/vulkan>.
 copyright: Copyright (C) 2016 Sven Panne
 license: BSD3
 license-file: LICENSE
