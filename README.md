@@ -1,0 +1,1 @@
+[![Hackage](https://img.shields.io/hackage/v/Vulkan.svg)](https://hackage.haskell.org/package/Vulkan) [![Build Status](https://travis-ci.org/svenpanne/Vulkan.png)](https://travis-ci.org/svenpanne/Vulkan)
