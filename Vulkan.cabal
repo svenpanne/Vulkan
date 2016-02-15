@@ -14,7 +14,12 @@ author: Sven Panne
 maintainer: Sven Panne <svenpanne@gmail.com>
 category: Graphics
 build-type: Simple
-cabal-version: >=1.10
+tested-with:
+  GHC == 7.8.4
+  GHC == 7.10.3
+  GHC == 8.0.1
+  GHC == 8.1
+cabal-version: >= 1.10
 extra-source-files:
   CHANGELOG.md
   README.md
@@ -27,6 +32,8 @@ library
   hs-source-dirs: src
   default-language: Haskell2010
   ghc-options: -Wall
+  if impl(ghc > 8)
+    ghc-options: -Wcompat
 
 source-repository head
   type: git
