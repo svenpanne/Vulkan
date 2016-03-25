@@ -23,6 +23,16 @@ cabal-version: >= 1.10
 extra-source-files:
   CHANGELOG.md
   README.md
+  RegistryProcessor/LICENSE
+  RegistryProcessor/RegistryProcessor.cabal
+  RegistryProcessor/Setup.hs
+  RegistryProcessor/Vulkan-Registry/registry.rnc
+  RegistryProcessor/Vulkan-Registry/vk.xml
+  RegistryProcessor/src/DeclarationParser.hs
+  RegistryProcessor/src/Main.hs
+  RegistryProcessor/src/ManPages.hs
+  RegistryProcessor/src/MangledRegistry.hs
+  RegistryProcessor/src/Registry.hs
 
 library
   exposed-modules:

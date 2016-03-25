@@ -56,19 +56,16 @@ toRegistry toEnumType r = Registry {
     [ (typeNameOf t, toType t)
     | R.TypesElement te <- rs
     , t <- R.unTypes te ],
-  groups = fromList'
-    [ (GroupName . R.unName . R.groupName $ g, toGroup g)
-    | R.GroupsElement ge <- rs
-    , g <- R.unGroups ge ],
+  groups = fromList' [],
   enums = M.fromListWith (++)
    [ (enumName en, [en])
    | R.EnumsElement ee <- rs
    , Left e <- R.enumsEnumOrUnuseds ee
-   , let en = toEnum' (toEnumType (R.enumsNamespace ee) (R.enumsGroup ee) (R.enumsType ee)) e ],
+   , let en = toEnum' (toEnumType (error "remove me 1") (error "remove me 2") (R.enumsType ee)) e ],
   commands = fromList'
    [ (CommandName . R.protoName . R.commandProto $ c, toCommand c)
    | R.CommandsElement ce <- rs
-   , c <- R.commandsCommands ce ],
+   , c <- R.unCommands ce ],
   features = fromList'
     [ ((API (R.featureAPI f), read (R.featureNumber f)),
        map toModification (R.featureModifications f))
@@ -104,10 +101,6 @@ toType t = Type {
 data Group = Group {
   groupEnums :: [EnumName]
   } deriving (Eq, Ord, Show)
-
-toGroup :: R.Group -> Group
-toGroup g = Group {
-  groupEnums = map (EnumName . R.unName) (R.groupEnums g) }
 
 -- NOTE: Due to an oversight in the OpenGL ES spec, an enum can have different
 -- values for different APIs (happens only for GL_ACTIVE_PROGRAM_EXT).

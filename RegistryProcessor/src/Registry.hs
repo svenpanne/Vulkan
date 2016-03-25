@@ -1,13 +1,15 @@
 -- This module contains a 1:1 translation of registry.rnc with an (un-)parser.
--- No simplifications or GL/GLX/EGL/WGL-specific things are done here.
+-- No simplifications are done here.
 module Registry (
   parseRegistry, unparseRegistry,
   Registry(..),
   RegistryElement(..),
+  VendorIds(..),
+  VendorId(..),
+  Tags(..),
+  Tag(..),
   Types(..),
   Type(..),
-  Groups(..),
-  Group(..),
   Enums(..),
   Enum'(..),
   Unused(..),
@@ -31,7 +33,10 @@ module Registry (
   ProfileName(..),
   Vendor(..),
   Comment(..),
-  Name(..)
+  Name(..),
+  Author(..),
+  Contact(..),
+  Bool'(..)
 ) where
 
 import Data.Maybe ( maybeToList )
@@ -65,8 +70,9 @@ xpRegistry =
 
 data RegistryElement
   = CommentElement { unCommentElement :: Comment }
+  | VendorIdsElement { unVendorIdsElement :: VendorIds }
+  | TagsElement { unTagsElement :: Tags }
   | TypesElement { unTypesElement:: Types }
-  | GroupsElement { unGroupsElement :: Groups }
   | EnumsElement { unEnumsElement :: Enums }
   | CommandsElement { unCommandsElement :: Commands }
   | FeatureElement { unFeatureElement :: Feature }
@@ -75,21 +81,79 @@ data RegistryElement
 
 xpRegistryElement :: PU RegistryElement
 xpRegistryElement = xpAlt tag pus
-  where tag (CommentElement _)= 0
-        tag (TypesElement _) = 1
-        tag (GroupsElement _) = 2
-        tag (EnumsElement _) = 3
-        tag (CommandsElement _) = 4
-        tag (FeatureElement _) = 5
-        tag (ExtensionsElement _) = 6
-        pus = [ xpWrap (CommentElement, unCommentElement) $
-                  xpElem "comment" xpComment
+  where tag (CommentElement _) = 0
+        tag (VendorIdsElement _) = 1
+        tag (TagsElement _) = 2
+        tag (TypesElement _) = 3
+        tag (EnumsElement _) = 4
+        tag (CommandsElement _) = 5
+        tag (FeatureElement _) = 6
+        tag (ExtensionsElement _) = 7
+        pus = [ xpWrap (CommentElement, unCommentElement) xpCommentElement
+              , xpWrap (VendorIdsElement, unVendorIdsElement) xpVendorIds
+              , xpWrap (TagsElement, unTagsElement) xpTags
               , xpWrap (TypesElement, unTypesElement) xpTypes
-              , xpWrap (GroupsElement, unGroupsElement) xpGroups
               , xpWrap (EnumsElement, unEnumsElement) xpEnums
               , xpWrap (CommandsElement, unCommandsElement) xpCommands
               , xpWrap (FeatureElement, unFeatureElement) xpFeature
               , xpWrap (ExtensionsElement, unExtensionsElement) xpExtensions ]
+
+xpCommentElement :: PU Comment
+xpCommentElement =
+  xpWrap (Comment, unComment) $
+  xpElem "comment" xpText
+
+newtype VendorIds = VendorIds {
+  unVendorIds :: [VendorId]
+  } deriving (Eq, Ord, Show)
+
+xpVendorIds :: PU VendorIds
+xpVendorIds =
+  xpWrap (VendorIds, unVendorIds) $
+  xpElem "vendorids" $
+  xpList xpVendorId
+
+data VendorId = VendorId {
+  vendorIdName :: Vendor,
+  vendorIdId :: Integer',
+  vendorIdComment :: Maybe Comment
+  } deriving (Eq, Ord, Show)
+
+xpVendorId :: PU VendorId
+xpVendorId =
+  xpWrap (\(a,b,c) -> VendorId a b c
+         ,\(VendorId a b c) -> (a,b,c)) $
+  xpElem "vendorid" $
+  xpTriple
+    (xpWrap (Vendor, unVendor) (xpAttr "name" xpText))
+    (xpAttr "id" xpInteger)
+    (xpOption xpComment)
+
+newtype Tags = Tags {
+  unTags :: [Tag]
+  } deriving (Eq, Ord, Show)
+
+xpTags :: PU Tags
+xpTags =
+  xpWrap (Tags, unTags) $
+  xpElem "tags" $
+  xpList xpTag
+
+data Tag = Tag {
+  tagName :: Vendor,
+  tagAuthor :: Author,
+  tagContact :: Contact
+  } deriving (Eq, Ord, Show)
+
+xpTag :: PU Tag
+xpTag =
+  xpWrap (\(a,b,c) -> Tag a b c
+         ,\(Tag a b c) -> (a,b,c)) $
+  xpElem "tag" $
+  xpTriple
+    (xpWrap (Vendor, unVendor) (xpAttr "name" xpText))
+    (xpAttr "author" xpAuthor)
+    (xpAttr "contact" xpContact)
 
 newtype Types = Types {
   unTypes :: [Type]
@@ -105,8 +169,12 @@ data Type = Type {
   typeAPI :: Maybe String,
   typeRequires :: Maybe String,
   typeName1 :: Maybe TypeName,
-  typeType :: Maybe String,
+  typeCategory :: Maybe String,
+  typeParent :: Maybe TypeName,
+  typeReturnedOnly :: Maybe Bool',
   typeComment :: Maybe Comment,
+  -- TODO: Fields below are bogus for Vulkan
+  typeType :: Maybe String,
   typeText1 :: String,
   typeAPIEntry :: Maybe String,
   typeText2 :: String,
@@ -116,56 +184,30 @@ data Type = Type {
 
 xpType :: PU Type
 xpType =
-  xpWrap (\(a,b,c,d,e,f,g,h,i,j) -> Type a b c d e f g h i j
-         ,\(Type a b c d e f g h i j) -> (a,b,c,d,e,f,g,h,i,j)) $
+  xpWrap (\(a,b,c,d,e,f,g,h,i,j,k,l,m) -> Type a b c d e f g h i j k l m
+         ,\(Type a b c d e f g h i j k l m) -> (a,b,c,d,e,f,g,h,i,j,k,l,m)) $
   xpElem "type" $
-  xp10Tuple
+  xp13Tuple
     (xpAttrImplied "api" xpText)
     (xpAttrImplied "requires" xpText)
     (xpAttrImplied "name" xpTypeName)
+    (xpAttrImplied "category" xpText)
+    (xpAttrImplied "parent" xpTypeName)
+    (xpAttrImplied "returnedonly" xpBool)
+    (xpOption xpComment)
     (xpAttrImplied "type" xpText)
-    (xpOption xpCommentAttr)
     xpText0
     (xpOption $ xpElem "apientry" xpText0)
     xpText0
     (xpOption $ xpElem "name" xpTypeName)
     xpText0
 
-newtype Groups = Groups {
-  unGroups :: [Group]
-  } deriving (Eq, Ord, Show)
-
-xpGroups :: PU Groups
-xpGroups =
-  xpWrap (Groups, unGroups) $
-  xpElem "groups" $
-  xpList xpGroup
-
-data Group = Group {
-  groupName :: Name,
-  groupComment :: Maybe Comment,
-  groupEnums :: [Name]
-  } deriving (Eq, Ord, Show)
-
-xpGroup :: PU Group
-xpGroup =
-  xpWrap (\(a,b,c) -> Group a b c
-         ,\(Group a b c) -> (a,b,c)) $
-  xpElem "group" $
-  xpTriple
-    xpName
-    (xpOption xpCommentAttr)
-    (xpList $ xpElem "enum" xpName)
-
 data Enums = Enums {
-  enumsNamespace :: Maybe String,
-  enumsGroup :: Maybe String,
+  enumsName :: Maybe TypeName,
   enumsType :: Maybe String,
-  -- enumsStart is conceptually a 'Maybe Integer', but egl.xml cheats a bit and
-  -- uses e.g. 'start="0x3060-0x306F"' as a shorthand for
-  -- 'start="0x3060" end="0x306F"'.
   enumsStart :: Maybe Integer',
   enumsEnd :: Maybe Integer',
+  enumsExpand :: Maybe String,
   enumsVendor :: Maybe Vendor,
   enumsComment :: Maybe Comment,
   enumsEnumOrUnuseds :: [Either Enum' Unused]
@@ -177,13 +219,13 @@ xpEnums =
          ,\(Enums a b c d e f g h) -> (a,b,c,d,e,f,g,h)) $
   xpElem "enums" $
   xp8Tuple
-    (xpAttrImplied "namespace" xpText)
-    (xpAttrImplied "group" xpText)
+    (xpAttrImplied "name" xpTypeName)
     (xpAttrImplied "type" xpText)
     (xpAttrImplied "start" xpInteger)
     (xpAttrImplied "end" xpInteger)
+    (xpAttrImplied "expand" xpText)
     (xpOption xpVendor)
-    (xpOption xpCommentAttr)
+    (xpOption xpComment)
     (xpList $ xpEither xpEnum xpUnused)
 
 xpEither :: PU a -> PU b -> PU (Either a b)
@@ -194,7 +236,7 @@ xpEither pl pr = xpAlt tag pus
               , xpWrap (Right, \(Right r) -> r) pr ]
 
 data Enum' = Enum {
-  enumValue :: String,
+  enumValue :: String,  -- TODO: 3 possibilities for Vulkan
   enumAPI :: Maybe String,
   enumType :: Maybe TypeSuffix,
   enumName :: String,
@@ -215,7 +257,7 @@ xpEnum =
     (xpAttrImplied "type" xpTypeSuffix)
     (xpAttr "name" xpText)
     (xpAttrImplied "alias" xpText)
-    (xpOption xpCommentAttr)
+    (xpOption xpComment)
 
 data Unused = Unused {
   unusedStart :: Integer',
@@ -233,21 +275,17 @@ xpUnused =
     (xpAttr "start" xpInteger)
     (xpAttrImplied "end" xpInteger)
     (xpOption xpVendor)
-    (xpOption xpCommentAttr)
+    (xpOption xpComment)
 
-data Commands = Commands {
-  commandsNamespace :: Maybe String,
-  commandsCommands :: [Command]
+newtype Commands = Commands {
+  unCommands :: [Command]
   } deriving (Eq, Ord, Show)
 
 xpCommands :: PU Commands
 xpCommands =
-  xpWrap (\(a,b) -> Commands a b
-         ,\(Commands a b) -> (a,b)) $
+  xpWrap (Commands, unCommands) $
   xpElem "commands" $
-  xpPair
-    (xpAttrImplied "namespace" xpText)
-    (xpList xpCommand)
+  xpList xpCommand
 
 data Command = Command {
   commandComment :: Maybe Comment,
@@ -264,7 +302,7 @@ xpCommand =
          ,\(Command a b c d e f) -> (a,b,c,(d,e,f))) $
   xpElem "command" $
   xp4Tuple
-    (xpOption xpCommentAttr)
+    (xpOption xpComment)
     xpProto
     (xpList xpParam)
     xpCommandTail
@@ -356,7 +394,7 @@ xpGLX =
     (xpAttr "type" xpText)
     (xpAttr "opcode" xpInt)
     (xpOption xpName)
-    (xpOption xpCommentAttr)
+    (xpOption xpComment)
 
 data Feature = Feature {
   featureAPI :: String,
@@ -377,7 +415,7 @@ xpFeature =
     xpName
     (xpAttr "number" xpText)
     (xpAttrImplied "protect" xpText)
-    (xpOption xpCommentAttr)
+    (xpOption xpComment)
     (xpList xpModification)
 
 data Modification = Modification {
@@ -401,7 +439,7 @@ xpModification =
           xpElem el $
           xpTriple
             (xpOption xpProfileName)
-            (xpOption xpCommentAttr)
+            (xpOption xpComment)
             (xpList xpInterfaceElement)
 
 newtype Extensions = Extensions {
@@ -416,22 +454,28 @@ xpExtensions =
 
 data Extension = Extension {
   extensionName :: Name,
+  extensionNumber :: Maybe Integer',
   extensionProtect :: Maybe String,
   extensionSupported :: Maybe StringGroup,
+  extensionAuthor :: Maybe Author,
+  extensionContact :: Maybe Contact,
   extensionComment :: Maybe Comment,
   extensionsRequireRemove :: [ConditionalModification]
   } deriving (Eq, Ord, Show)
 
 xpExtension :: PU Extension
 xpExtension =
-  xpWrap (\(a,b,c,d,e) -> Extension a b c d e
-         ,\(Extension a b c d e) -> (a,b,c,d,e)) $
+  xpWrap (\(a,b,c,d,e,f,g,h) -> Extension a b c d e f g h
+         ,\(Extension a b c d e f g h) -> (a,b,c,d,e,f,g,h)) $
   xpElem "extension" $
-  xp5Tuple
+  xp8Tuple
     xpName
+    (xpAttrImplied "number" xpInteger)
     (xpAttrImplied "protect" xpText)
     (xpAttrImplied "supported" xpStringGroup)
-    (xpOption xpCommentAttr)
+    (xpAttrImplied "author" xpAuthor)
+    (xpAttrImplied "contact" xpContact)
+    (xpOption xpComment)
     (xpList xpConditionalModification)
 
 data ConditionalModification = ConditionalModification {
@@ -451,7 +495,7 @@ xpConditionalModification =
           xp4Tuple
             (xpAttrImplied "api" xpText)
             (xpOption xpProfileName)
-            (xpOption xpCommentAttr)
+            (xpOption xpComment)
             (xpList xpInterfaceElement)
 
 data InterfaceElement = InterfaceElement {
@@ -477,12 +521,14 @@ xpInterfaceElement = xpAlt (fromEnum . interfaceElementKind) pus
           xpElem el $
           xpPair
             xpName
-            (xpOption xpCommentAttr)
+            (xpOption xpComment)
 
 newtype Integer' = Integer { unInteger :: String } deriving (Eq, Ord, Show)
 
 xpInteger :: PU Integer'
 xpInteger = xpWrap (Integer, unInteger) xpText
+
+newtype Author = Author { unAuthor :: String } deriving (Eq, Ord, Show)
 
 newtype TypeName = TypeName { unTypeName :: String } deriving (Eq, Ord, Show)
 
@@ -503,27 +549,39 @@ newtype ProfileName = ProfileName { unProfileName :: String } deriving (Eq, Ord,
 
 xpProfileName :: PU ProfileName
 xpProfileName =
-  xpAttr "profile" $
-  xpWrap (ProfileName, unProfileName) xpText
+  xpWrap (ProfileName, unProfileName) $
+  xpAttr "profile" xpText
 
 newtype Vendor = Vendor { unVendor :: String } deriving (Eq, Ord, Show)
 
 xpVendor :: PU Vendor
 xpVendor =
-  xpAttr "vendor" $
-  xpWrap (Vendor, unVendor) xpText
+  xpWrap (Vendor, unVendor) $
+  xpAttr "vendor" xpText
 
 newtype Comment = Comment { unComment :: String } deriving (Eq, Ord, Show)
 
 xpComment :: PU Comment
-xpComment = xpWrap (Comment, unComment) xpText
-
-xpCommentAttr :: PU Comment
-xpCommentAttr = xpAttr "comment" xpComment
+xpComment =
+  xpAttr "comment" $
+  xpWrap (Comment, unComment) xpText
 
 newtype Name = Name { unName :: String } deriving (Eq, Ord, Show)
 
 xpName :: PU Name
 xpName =
-  xpAttr "name" $
-  xpWrap (Name, unName) xpText
+  xpWrap (Name, unName) $
+  xpAttr "name" xpText
+
+xpAuthor :: PU Author
+xpAuthor = xpWrap (Author, unAuthor) xpText
+
+newtype Contact = Contact { unContact :: String } deriving (Eq, Ord, Show)
+
+xpContact :: PU Contact
+xpContact = xpWrap (Contact, unContact) xpText
+
+newtype Bool' = Bool { unBool :: String } deriving (Eq, Ord, Show)
+
+xpBool :: PU Bool'
+xpBool = xpWrap (Bool, unBool) xpText
