@@ -1,8 +1,10 @@
+*.exe
+*.hi
+*.o
 *.swp
 *~
+.stack-work
 /.cabal-sandbox
 /dist
-/src/**/*.exe
-/src/**/*.hi
-/src/**/*.o
 cabal.sandbox.config
+stack.yaml

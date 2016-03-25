@@ -1,0 +1,27 @@
+name: RegistryProcessor
+version: 0.1.0.0
+synopsis: A processor for the Vulkan Registry
+description: A tool for generating Vulkan from the Vulkan Registry
+license: BSD3
+license-file: LICENSE
+author: Sven Panne
+maintainer: Sven Panne <svenpanne@gmail.com>
+category: Graphics
+build-type: Simple
+extra-source-files:
+  Vulkan-Registry/vk.xml
+  Vulkan-Registry/registry.rnc
+cabal-version: >= 1.10
+
+executable RegistryProcessor
+  main-is: Main.hs
+  other-modules: DeclarationParser ManPages MangledRegistry Registry
+  build-depends:
+    base       >= 4   && < 5,
+    containers >= 0.3 && < 0.6,
+    hxt        >= 9.3 && < 9.4,
+    directory  >= 1.0 && < 1.3,
+    filepath   >= 1.0 && < 1.5
+  hs-source-dirs: src
+  default-language: Haskell2010
+  ghc-options: -Wall
