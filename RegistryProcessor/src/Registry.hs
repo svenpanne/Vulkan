@@ -276,7 +276,6 @@ data Enums = Enums {
   enumsType :: Maybe String,
   enumsStart :: Maybe Integer',
   enumsEnd :: Maybe Integer',
-  enumsExpand :: Maybe String,
   enumsVendor :: Maybe Vendor,
   enumsComment :: Maybe Comment,
   enumsEnumOrUnuseds :: [Either Enum' Unused]
@@ -284,15 +283,14 @@ data Enums = Enums {
 
 xpEnums :: PU Enums
 xpEnums =
-  xpWrap (\(a,b,c,d,e,f,g,h) -> Enums a b c d e f g h
-         ,\(Enums a b c d e f g h) -> (a,b,c,d,e,f,g,h)) $
+  xpWrap (\(a,b,c,d,e,f,g) -> Enums a b c d e f g
+         ,\(Enums a b c d e f g) -> (a,b,c,d,e,f,g)) $
   xpElem "enums" $
-  xp8Tuple
+  xp7Tuple
     (xpAttrImplied "name" xpTypeName)
     (xpAttrImplied "type" xpText)
     (xpAttrImplied "start" xpInteger)
     (xpAttrImplied "end" xpInteger)
-    (xpAttrImplied "expand" xpText)
     (xpOption xpVendor)
     (xpOption xpComment)
     (xpList $ xpEither xpEnum xpUnused)
