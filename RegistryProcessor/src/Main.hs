@@ -1,5 +1,18 @@
 module Main ( main ) where
 
+import qualified Registry as R
+import qualified System.Environment as E
+import qualified System.IO as SI
+
+main :: IO ()
+main = do
+  [registryPath] <- E.getArgs
+  res <- R.parseRegistry `fmap` readFile registryPath
+  case res of
+    Left msg -> SI.hPutStrLn SI.stderr msg
+    Right registry -> putStrLn (R.unparseRegistry registry)
+
+{-
 import qualified Control.Monad as CM
 import qualified Data.Char as C
 import qualified Data.List as L
@@ -699,3 +712,4 @@ toEnumType eNamespace eGroup eType suffix eName = TypeName $
 
 isMask :: TypeName -> Bool
 isMask = (== TypeName "GLbitfield")
+-}
