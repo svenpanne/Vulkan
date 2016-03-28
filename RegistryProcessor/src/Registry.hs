@@ -14,6 +14,7 @@ module Registry (
   Member(..),
   Enums(..),
   Enum'(..),
+  EnumValue(..),
   Unused(..),
   Commands(..),
   Command(..),
@@ -222,7 +223,7 @@ xpType =
 data TypeFragment
   = Text { unText :: String }
   | TypeRef { unTypeRef :: TypeName }
-  | ApiEntry { unApiEntry :: String }
+  | APIEntry { unAPIEntry :: String }
   | NameDef { unNameDef :: TypeName }
   | EnumRef { unEnumRef :: EnumName }
   | MemberDef { unMemberDef :: Member }
@@ -234,14 +235,14 @@ xpTypeFragment =
   xpAlt tag pus
     where tag (Text _) = 0
           tag (TypeRef _) = 1
-          tag (ApiEntry _) = 2
+          tag (APIEntry _) = 2
           tag (NameDef _) = 3
           tag (EnumRef _) = 4
           tag (MemberDef _) = 5
           tag (ValiditySpec _) = 6
           pus = [xpWrap (Text, unText) xpText
                 ,xpWrap (TypeRef, unTypeRef) $ xpElem "type" xpTypeName
-                ,xpWrap (ApiEntry, unApiEntry) $ xpElem "apientry" xpText
+                ,xpWrap (APIEntry, unAPIEntry) $ xpElem "apientry" xpText
                 ,xpWrap (NameDef, unNameDef) $ xpElem "name" xpTypeName
                 ,xpWrap (EnumRef, unEnumRef) $ xpElem "enum" xpEnumName
                 ,xpWrap (MemberDef, unMemberDef) xpMember
@@ -307,7 +308,7 @@ xpEither pl pr = xpAlt tag pus
 --------------------------------------------------------------------------------
 
 data Enum' = Enum {
-  enumValue :: String,  -- TODO: 3 possibilities for Vulkan
+  enumValue :: EnumValue,
   enumAPI :: Maybe String,
   enumType :: Maybe TypeSuffix,
   enumName :: String,
@@ -323,12 +324,43 @@ xpEnum =
          ,\(Enum a b c d e f) -> (a,b,c,d,e,f)) $
   xpElem "enum" $
   xp6Tuple
-    (xpAttr "value" xpText)
+    xpEnumValue
     (xpAttrImplied "api" xpText)
     (xpAttrImplied "type" xpTypeSuffix)
     (xpAttr "name" xpText)
     (xpAttrImplied "alias" xpText)
     (xpOption xpComment)
+
+--------------------------------------------------------------------------------
+
+data EnumValue
+  = Value Integer' (Maybe TypeName)
+  | BitPos Integer' (Maybe TypeName)
+  | Offset Integer' (Maybe String) TypeName
+  deriving (Eq, Ord, Show)
+
+xpEnumValue :: PU EnumValue
+xpEnumValue = xpAlt tag pus
+  where tag (Value _ _) = 0
+        tag (BitPos _ _) = 1
+        tag (Offset _ _ _) = 2
+        pus = [ xpValue, xpBitPos, xpOffset ]
+        xpValue  = xpWrap (\(a,b) -> Value a b
+                          ,\(Value a b) -> (a,b)) $
+                   xpPair
+                     (xpAttr "value" xpInteger)
+                     (xpAttrImplied "extends" xpTypeName)
+        xpBitPos = xpWrap (\(a,b) -> BitPos a b
+                          ,\(BitPos a b) -> (a,b)) $
+                   xpPair
+                     (xpAttr "bitpos" xpInteger)
+                     (xpAttrImplied "extends" xpTypeName)
+        xpOffset = xpWrap (\(a,b,c) -> Offset a b c
+                          ,\(Offset a b c) -> (a,b,c)) $
+                   xpTriple
+                     (xpAttr "offset" xpInteger)
+                     (xpAttrImplied "dir" xpText)
+                     (xpAttr "extends" xpTypeName)
 
 --------------------------------------------------------------------------------
 
@@ -365,20 +397,31 @@ xpCommands =
 --------------------------------------------------------------------------------
 
 data Command = Command {
+  commandQueues :: Maybe String,
+  commandSuccessCodes :: Maybe String,
+  commandErrorCodes :: Maybe String,
+  commandRenderPass :: Maybe String,
+  commandCmdBufferLevel :: Maybe String,
   commandComment :: Maybe Comment,
   commandProto :: Proto,
   commandParams :: [Param],
   commandAlias :: Maybe Name,
-  commandVecEquiv :: Maybe Name,
-  commandGLXs :: [GLX]
+  commandDescription :: Maybe String,
+  commandGLXs :: [GLX],
+  commandValidity :: Maybe Validity
   } deriving (Eq, Ord, Show)
 
 xpCommand :: PU Command
 xpCommand =
-  xpWrap (\(a,b,c,(d,e,f)) -> Command a b c d e f
-         ,\(Command a b c d e f) -> (a,b,c,(d,e,f))) $
+  xpWrap (\(a,b,c,d,e,f,g,h,(i,j,k,l)) -> Command a b c d e f g h i j k l
+         ,\(Command a b c d e f g h i j k l) -> (a,b,c,d,e,f,g,h,(i,j,k,l))) $
   xpElem "command" $
-  xp4Tuple
+  xp9Tuple
+    (xpAttrImplied "queues" xpText)
+    (xpAttrImplied "successcodes" xpText)
+    (xpAttrImplied "errorcodes" xpText)
+    (xpAttrImplied "renderpass" xpText)
+    (xpAttrImplied "cmdbufferlevel" xpText)
     (xpOption xpComment)
     xpProto
     (xpList xpParam)
@@ -386,23 +429,27 @@ xpCommand =
 
 -- The spec uses the interleave pattern here, which is not supported in hxt.
 -- As a workaround, we use a list of disjoint types.
-xpCommandTail :: PU (Maybe Name, Maybe Name, [GLX])
+xpCommandTail :: PU (Maybe Name, Maybe String, [GLX],Maybe Validity)
 xpCommandTail =
   xpWrapEither (\xs -> do a <- check "alias" [x | AliasElement x <- xs]
-                          b <- check "vecequiv" [x | VecEquivElement x <- xs]
+                          b <- check "description" [x | DescriptionElement x <- xs]
                           c <- return [x | GLXElement x <- xs]
-                          return (a,b,c)
-               ,\(a,b,c) -> map AliasElement (maybeToList a) ++
-                            map VecEquivElement (maybeToList b) ++
-                            map GLXElement c) $
+                          d <- check "validity" [x | ValidityElement x <- xs]
+                          return (a,b,c,d)
+               ,\(a,b,c,d) -> map AliasElement (maybeToList a) ++
+                              map DescriptionElement (maybeToList b) ++
+                              map GLXElement c ++
+                              map ValidityElement (maybeToList d)) $
   xpList $
   xpAlt tag pus
     where tag (AliasElement _) = 0
-          tag (VecEquivElement _) = 1
+          tag (DescriptionElement _) = 1
           tag (GLXElement _) = 2
+          tag (ValidityElement _) = 3
           pus = [xpWrap (AliasElement,unAliasElement) $ xpElem "alias" xpName
-                ,xpWrap (VecEquivElement,unVecEquivElement) $ xpElem "vecequiv" xpName
-                ,xpWrap (GLXElement,unGLXElement) xpGLX]
+                ,xpWrap (DescriptionElement,unDescriptionElement) $ xpElem "description" xpText
+                ,xpWrap (GLXElement,unGLXElement) xpGLX
+                ,xpWrap (ValidityElement,unValidityElement) xpValidity]
           check n xs = case xs of
                        [] -> Right Nothing
                        [x] -> Right $ Just x
@@ -410,8 +457,9 @@ xpCommandTail =
 
 data CommandTail
   = AliasElement { unAliasElement :: Name }
-  | VecEquivElement { unVecEquivElement :: Name }
+  | DescriptionElement { unDescriptionElement :: String }
   | GLXElement { unGLXElement :: GLX }
+  | ValidityElement { unValidityElement :: Validity }
   deriving (Eq, Ord, Show)
 
 --------------------------------------------------------------------------------
