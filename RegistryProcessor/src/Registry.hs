@@ -19,8 +19,8 @@ module Registry (
   Commands(..),
   Command(..),
   Proto(..),
+  ProtoPart(..),
   Param(..),
-  GLX(..),
   Feature(..),
   Modification(..),
   ModificationKind(..),
@@ -111,11 +111,6 @@ xpRegistryElement = xpAlt tag pus
               , xpWrap (FeatureElement, unFeatureElement) xpFeature
               , xpWrap (ExtensionsElement, unExtensionsElement) xpExtensions ]
 
-xpCommentElement :: PU Comment
-xpCommentElement =
-  xpWrap (Comment, unComment) $
-  xpElem "comment" xpText
-
 --------------------------------------------------------------------------------
 
 newtype VendorIds = VendorIds {
@@ -142,7 +137,7 @@ xpVendorId =
          ,\(VendorId a b c) -> (a,b,c)) $
   xpElem "vendorid" $
   xpTriple
-    (xpWrap (Vendor, unVendor) (xpAttr "name" xpText))
+    xpVendorName
     (xpAttr "id" xpInteger)
     (xpOption xpComment)
 
@@ -172,7 +167,7 @@ xpTag =
          ,\(Tag a b c) -> (a,b,c)) $
   xpElem "tag" $
   xpTriple
-    (xpWrap (Vendor, unVendor) (xpAttr "name" xpText))
+    xpVendorName
     (xpAttr "author" xpAuthor)
     (xpAttr "contact" xpContact)
 
@@ -240,13 +235,13 @@ xpTypeFragment =
           tag (EnumRef _) = 4
           tag (MemberDef _) = 5
           tag (ValiditySpec _) = 6
-          pus = [xpWrap (Text, unText) xpText
-                ,xpWrap (TypeRef, unTypeRef) $ xpElem "type" xpTypeName
-                ,xpWrap (APIEntry, unAPIEntry) $ xpElem "apientry" xpText
-                ,xpWrap (NameDef, unNameDef) $ xpElem "name" xpTypeName
-                ,xpWrap (EnumRef, unEnumRef) $ xpElem "enum" xpEnumName
-                ,xpWrap (MemberDef, unMemberDef) xpMember
-                ,xpWrap (ValiditySpec, unValiditySpec) xpValidity]
+          pus = [ xpWrap (Text, unText) xpText
+                , xpWrap (TypeRef, unTypeRef) $ xpElem "type" xpTypeName
+                , xpWrap (APIEntry, unAPIEntry) $ xpElem "apientry" xpText
+                , xpWrap (NameDef, unNameDef) $ xpElem "name" xpTypeName
+                , xpWrap (EnumRef, unEnumRef) $ xpElem "enum" xpEnumName
+                , xpWrap (MemberDef, unMemberDef) xpMember
+                , xpWrap (ValiditySpec, unValiditySpec) xpValidity]
 
 --------------------------------------------------------------------------------
 
@@ -407,7 +402,7 @@ data Command = Command {
   commandParams :: [Param],
   commandAlias :: Maybe Name,
   commandDescription :: Maybe String,
-  commandGLXs :: [GLX],
+  commandImplicitExternSyncParams :: Maybe [String],
   commandValidity :: Maybe Validity
   } deriving (Eq, Ord, Show)
 
@@ -423,33 +418,38 @@ xpCommand =
     (xpAttrImplied "renderpass" xpText)
     (xpAttrImplied "cmdbufferlevel" xpText)
     (xpOption xpComment)
-    xpProto
+    (xpElem "proto" xpProto)
     (xpList xpParam)
     xpCommandTail
 
 -- The spec uses the interleave pattern here, which is not supported in hxt.
 -- As a workaround, we use a list of disjoint types.
-xpCommandTail :: PU (Maybe Name, Maybe String, [GLX],Maybe Validity)
+xpCommandTail :: PU (Maybe Name, Maybe String, Maybe [String], Maybe Validity)
 xpCommandTail =
   xpWrapEither (\xs -> do a <- check "alias" [x | AliasElement x <- xs]
                           b <- check "description" [x | DescriptionElement x <- xs]
-                          c <- return [x | GLXElement x <- xs]
+                          c <- check "implicitexternsyncparams" [x | ImplicitExternSyncParams x <- xs]
                           d <- check "validity" [x | ValidityElement x <- xs]
                           return (a,b,c,d)
                ,\(a,b,c,d) -> map AliasElement (maybeToList a) ++
                               map DescriptionElement (maybeToList b) ++
-                              map GLXElement c ++
+                              map ImplicitExternSyncParams (maybeToList c) ++
                               map ValidityElement (maybeToList d)) $
   xpList $
   xpAlt tag pus
     where tag (AliasElement _) = 0
           tag (DescriptionElement _) = 1
-          tag (GLXElement _) = 2
+          tag (ImplicitExternSyncParams _) = 2
           tag (ValidityElement _) = 3
-          pus = [xpWrap (AliasElement,unAliasElement) $ xpElem "alias" xpName
-                ,xpWrap (DescriptionElement,unDescriptionElement) $ xpElem "description" xpText
-                ,xpWrap (GLXElement,unGLXElement) xpGLX
-                ,xpWrap (ValidityElement,unValidityElement) xpValidity]
+          pus = [ xpWrap (AliasElement, unAliasElement) $
+                  xpElem "alias" xpName
+                , xpWrap (DescriptionElement, unDescriptionElement) $
+                  xpElem "description" xpText
+                , xpWrap (ImplicitExternSyncParams, unImplicitExternSyncParams) $
+                  xpElem "implicitexternsyncparams" $
+                  xpList $
+                  xpElem "param" xpText
+                , xpWrap (ValidityElement, unValidityElement) xpValidity]
           check n xs = case xs of
                        [] -> Right Nothing
                        [x] -> Right $ Just x
@@ -458,74 +458,60 @@ xpCommandTail =
 data CommandTail
   = AliasElement { unAliasElement :: Name }
   | DescriptionElement { unDescriptionElement :: String }
-  | GLXElement { unGLXElement :: GLX }
+  | ImplicitExternSyncParams { unImplicitExternSyncParams :: [String] }
   | ValidityElement { unValidityElement :: Validity }
   deriving (Eq, Ord, Show)
 
 --------------------------------------------------------------------------------
 
-data Proto = Proto {
-  protoGroup :: Maybe String,
-  protoText1 :: String,
-  protoPtype :: Maybe TypeName,
-  protoText2 :: String,
-  protoName :: String,
-  protoText3 :: String
+newtype Proto = Proto {
+  unProto :: [Either String ProtoPart]
   } deriving (Eq, Ord, Show)
 
 xpProto :: PU Proto
-xpProto =
-  xpWrap (\(a,b,c,d,e,f) -> Proto a b c d e f
-         ,\(Proto a b c d e f) -> (a,b,c,d,e,f)) $
-  xpElem "proto" $
-  xp6Tuple
-    (xpAttrImplied "group" xpText)
-    xpText0
-    (xpOption $ xpElem "ptype" xpTypeName)
-    xpText0
-    (xpElem "name" xpText)
-    xpText0
+xpProto = xpWrap (Proto, unProto) xpProtoContent
+
+--------------------------------------------------------------------------------
+
+data ProtoPart
+  = ProtoType { unProtoType :: TypeName }
+  | ProtoName { unProtoName :: String }
+  deriving (Eq, Ord, Show)
+
+xpProtoContent :: PU [Either String ProtoPart]
+xpProtoContent =
+  xpList $
+  xpAlt tag pus
+    where tag (Left _) = 0
+          tag (Right (ProtoType _)) = 1
+          tag (Right (ProtoName _)) = 2
+          pus = [ xpWrap (Left, either id (error "Right?")) xpText
+                , xpWrap (Right . ProtoType, either (error "Left?") unProtoType) $
+                  xpElem "type" xpTypeName
+                , xpWrap (Right . ProtoName, either (error "Left?") unProtoName) $
+                  xpElem "name" xpText ]
 
 --------------------------------------------------------------------------------
 
 data Param = Param {
   paramLen :: Maybe String,
+  paramExternSync :: Maybe String,
+  paramOptional :: Maybe String,
+  paramNoAutoValidity :: Maybe String,
   paramProto :: Proto
   } deriving (Eq, Ord, Show)
 
 xpParam :: PU Param
 xpParam =
-  xpWrap (\(b,a,c,d,e,f,g) -> Param a (Proto b c d e f g)
-         ,\(Param a (Proto b c d e f g)) -> (b,a,c,d,e,f,g)) $
+  xpWrap (\(a,b,c,d,e) -> Param a b c d e
+         ,\(Param a b c d e) -> (a,b,c,d,e)) $
   xpElem "param" $
-  xp7Tuple
-    (xpAttrImplied "group" xpText)
+  xp5Tuple
     (xpAttrImplied "len" xpText)
-    xpText0
-    (xpOption $ xpElem "ptype" xpTypeName)
-    xpText0
-    (xpElem "name" xpText)
-    xpText0
-
---------------------------------------------------------------------------------
-
-data GLX = GLX {
-  glxType :: String,
-  glxOpcode :: Int,
-  glxName :: Maybe Name,
-  glxComment :: Maybe Comment
-  } deriving (Eq, Ord, Show)
-
-xpGLX :: PU GLX
-xpGLX =
-  xpWrap (\(a,b,c,d) -> GLX a b c d
-         ,\(GLX a b c d) -> (a,b,c,d)) $
-  xpElem "glx" $
-  xp4Tuple
-    (xpAttr "type" xpText)
-    (xpAttr "opcode" xpInt)
-    (xpOption xpName)
-    (xpOption xpComment)
+    (xpAttrImplied "externsync" xpText)
+    (xpAttrImplied "optional" xpText)
+    (xpAttrImplied "noautovalidity" xpText)
+    xpProto
 
 --------------------------------------------------------------------------------
 
@@ -761,9 +747,15 @@ newtype Vendor = Vendor {
   } deriving (Eq, Ord, Show)
 
 xpVendor :: PU Vendor
-xpVendor =
+xpVendor = xpVendorAttr "vendor"
+
+xpVendorName :: PU Vendor
+xpVendorName = xpVendorAttr "name"
+
+xpVendorAttr :: String -> PU Vendor
+xpVendorAttr a =
   xpWrap (Vendor, unVendor) $
-  xpAttr "vendor" xpText
+  xpAttr a xpText
 
 --------------------------------------------------------------------------------
 
@@ -772,9 +764,15 @@ newtype Comment = Comment {
   } deriving (Eq, Ord, Show)
 
 xpComment :: PU Comment
-xpComment =
-  xpAttr "comment" $
-  xpWrap (Comment, unComment) xpText
+xpComment = xpCommentAs xpAttr
+
+xpCommentElement :: PU Comment
+xpCommentElement = xpCommentAs xpElem
+
+xpCommentAs :: (String -> PU String -> PU String) -> PU Comment
+xpCommentAs xp =
+  xpWrap (Comment, unComment) $
+  xp "comment" xpText
 
 --------------------------------------------------------------------------------
 
