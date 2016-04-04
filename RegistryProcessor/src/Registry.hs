@@ -28,7 +28,6 @@ module Registry (
   Extension(..),
   ConditionalModification(..),
   InterfaceElement(..),
-  InterfaceElementKind(..),
   Validity(..),
   Usage(..),
   Integer'(..),
@@ -303,7 +302,7 @@ xpEither pl pr = xpAlt tag pus
 --------------------------------------------------------------------------------
 
 data Enum' = Enum {
-  enumValue :: EnumValue,
+  enumValue :: Maybe EnumValue,
   enumAPI :: Maybe String,
   enumType :: Maybe TypeSuffix,
   enumName :: String,
@@ -319,7 +318,7 @@ xpEnum =
          ,\(Enum a b c d e f) -> (a,b,c,d,e,f)) $
   xpElem "enum" $
   xp6Tuple
-    xpEnumValue
+    (xpOption xpEnumValue)
     (xpAttrImplied "api" xpText)
     (xpAttrImplied "type" xpTypeSuffix)
     (xpAttr "name" xpText)
@@ -518,7 +517,7 @@ xpParam =
 data Feature = Feature {
   featureAPI :: String,
   featureName :: Name,
-  featureNumber :: String,  -- actually xsd:decimal, but used as a string
+  featureNumber :: String,  -- actually xsd:float, but used as a string
   featureProtect :: Maybe String,
   featureComment :: Maybe Comment,
   featureModifications :: [Modification]
@@ -543,7 +542,8 @@ data Modification = Modification {
   modificationModificationKind :: ModificationKind,
   modificationProfileName :: Maybe ProfileName,
   modificationComment :: Maybe Comment,
-  modificationInterfaceElements :: [InterfaceElement]
+  modificationInterfaceElements :: [InterfaceElement],
+  modificationUsages :: [(Either String String, Usage)] -- TODO: Better type
   } deriving (Eq, Ord, Show)
 
 data ModificationKind = Require | Remove  -- TODO: Better name
@@ -555,13 +555,27 @@ xpModification =
   where pus = [ xpMod "require" Require
               , xpMod "remove" Remove ]
         xpMod el kind =
-          xpWrap (\(a,b,c) -> Modification kind a b c
-                 ,\(Modification _ a b c) -> (a,b,c)) $
+          xpWrap (\(a,b,c,d) -> Modification kind a b c d
+                 ,\(Modification _ a b c d) -> (a,b,c,d)) $
           xpElem el $
-          xpTriple
+          xp4Tuple
             (xpOption xpProfileName)
             (xpOption xpComment)
             (xpList xpInterfaceElement)
+            (xpList xpUsageWithAttr)
+
+xpUsageWithAttr :: PU (Either String String, Usage)
+xpUsageWithAttr =
+  xpElem "usage" $
+  xpPair
+    (xpAlt tag pus)
+    (xpWrap (Usage, unUsage) xpText)
+  where tag (Left _) = 0
+        tag (Right _) = 1
+        pus = [ xpWrap (Left, either id (error "Right?")) $
+                xpAttr "struct" xpText
+              , xpWrap (Right, either (error "Left?") id) $
+                xpAttr "command" xpText ]
 
 --------------------------------------------------------------------------------
 
@@ -616,41 +630,39 @@ xpConditionalModification =
   where pus = [ xpMod "require" Require
               , xpMod "remove" Remove ]
         xpMod el kind =
-          xpWrap (\(a,b,c,d) -> ConditionalModification a (Modification kind b c d)
-                 ,\(ConditionalModification a (Modification _ b c d)) -> (a,b,c,d)) $
+          xpWrap (\(a,b,c,d,e) -> ConditionalModification a (Modification kind b c d e)
+                 ,\(ConditionalModification a (Modification _ b c d e)) -> (a,b,c,d,e)) $
           xpElem el $
-          xp4Tuple
+          xp5Tuple
             (xpAttrImplied "api" xpText)
             (xpOption xpProfileName)
             (xpOption xpComment)
             (xpList xpInterfaceElement)
+            (xpList xpUsageWithAttr)
 
 --------------------------------------------------------------------------------
 
-data InterfaceElement = InterfaceElement {
-   interfaceElementKind :: InterfaceElementKind,
-   interfaceElementName :: Name,
-   interfaceElementComment :: Maybe Comment
-  } deriving (Eq, Ord, Show)
-
-data InterfaceElementKind
-  = InterfaceElementType
-  | InterfaceElementEnum
-  | InterfaceElementCommand
-  deriving (Eq, Ord, Show, Enum)
+data InterfaceElement
+  = InterfaceType Name (Maybe Comment)
+  | InterfaceEnum Enum'
+  | InterfaceCommand Name (Maybe Comment)
+  deriving (Eq, Ord, Show)
 
 xpInterfaceElement :: PU InterfaceElement
-xpInterfaceElement = xpAlt (fromEnum . interfaceElementKind) pus
-  where pus = [ xpIE InterfaceElementType "type"
-              , xpIE InterfaceElementEnum "enum"
-              , xpIE InterfaceElementCommand "command" ]
-        xpIE ty el =
-          xpWrap (\(a,b) -> InterfaceElement ty a b
-                 ,\(InterfaceElement _ a b) -> (a,b)) $
-          xpElem el $
-          xpPair
-            xpName
-            (xpOption xpComment)
+xpInterfaceElement = xpAlt tag pus
+  where tag (InterfaceType _ _) = 0
+        tag (InterfaceEnum _) = 1
+        tag (InterfaceCommand _ _) = 2
+        pus = [ xpInterfaceType, xpInterfaceEnum, xpInterfaceCommand ]
+        xpInterfaceType = xpWrap (\(a,b) -> InterfaceType a b
+                                 ,\(InterfaceType a b) -> (a,b)) $
+                          xpElem "type" $
+                          xpPair xpName (xpOption xpComment)
+        xpInterfaceEnum = xpWrap (InterfaceEnum, \(InterfaceEnum e) -> e) xpEnum
+        xpInterfaceCommand = xpWrap (\(a,b) -> InterfaceCommand a b
+                                    ,\(InterfaceCommand a b) -> (a,b)) $
+                             xpElem "command" $
+                             xpPair xpName (xpOption xpComment)
 
 --------------------------------------------------------------------------------
 
